@@ -1,13 +1,9 @@
 package com.example.trainings
 
 import android.app.DatePickerDialog
-import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
@@ -17,15 +13,10 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ListView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Calendar
 
 /** type: "PAY" (оплата, count = число тренировок) или "USE" (списание одной тренировки). date: yyyy-MM-dd */
@@ -51,7 +42,6 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnUse).setOnClickListener { onUseClicked() }
         findViewById<Button>(R.id.btnPay).setOnClickListener { onPayClicked() }
-        findViewById<Button>(R.id.btnUpdate).setOnClickListener { onUpdateClicked() }
 
         listView.setOnItemLongClickListener { _, _, position, _ ->
             confirmDelete(adapter.getItem(position))
@@ -132,91 +122,6 @@ class MainActivity : AppCompatActivity() {
             { _, y, m, d -> onPicked(String.format("%04d-%02d-%02d", y, m + 1, d)) },
             c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)
         ).show()
-    }
-
-    // ---------- обновление ----------
-
-    private fun onUpdateClicked() {
-        Toast.makeText(this, "Проверяю обновления…", Toast.LENGTH_SHORT).show()
-        Thread {
-            try {
-                val conn = URL("https://api.github.com/repos/vitalysemenovkr/trainings-app/releases/latest")
-                    .openConnection() as HttpURLConnection
-                conn.setRequestProperty("Accept", "application/vnd.github+json")
-                conn.connectTimeout = 10000
-                conn.readTimeout = 10000
-                val json = conn.inputStream.bufferedReader().readText()
-                conn.disconnect()
-
-                val tag = JSONObject(json).getString("tag_name")          // напр. "v14"
-                val latest = tag.removePrefix("v").toIntOrNull() ?: 0
-                val assets = JSONObject(json).getJSONArray("assets")
-                val apkUrl = if (assets.length() > 0) assets.getJSONObject(0).getString("browser_download_url") else ""
-                val current = packageManager.getPackageInfo(packageName, 0).longVersionCode.toInt()
-
-                runOnUiThread {
-                    if (apkUrl.isEmpty()) {
-                        Toast.makeText(this, "В релизе нет APK", Toast.LENGTH_LONG).show()
-                    } else if (latest <= current) {
-                        AlertDialog.Builder(this)
-                            .setTitle("Обновления")
-                            .setMessage("У вас последняя версия.\nУстановлена: $current\nВ репозитории: $tag")
-                            .setPositiveButton("OK", null)
-                            .show()
-                    } else {
-                        AlertDialog.Builder(this)
-                            .setTitle("Доступно обновление")
-                            .setMessage("Версия $tag доступна (у вас $current).\nСкачать и установить?")
-                            .setPositiveButton("Обновить") { _, _ -> downloadUpdate(apkUrl) }
-                            .setNegativeButton("Позже", null)
-                            .show()
-                    }
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Не удалось проверить обновления: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }.start()
-    }
-
-    private fun downloadUpdate(url: String) {
-        Toast.makeText(this, "Скачиваю обновление…", Toast.LENGTH_SHORT).show()
-        Thread {
-            try {
-                val conn = URL(url).openConnection() as HttpURLConnection
-                conn.connectTimeout = 10000
-                conn.readTimeout = 30000
-                val dir = File(cacheDir, "updates").apply { mkdirs() }
-                val file = File(dir, "update.apk")
-                conn.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output) } }
-                conn.disconnect()
-                runOnUiThread { installUpdate(file) }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Ошибка скачивания: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }.start()
-    }
-
-    private fun installUpdate(file: File) {
-        try {
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-            val intent = Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
-                startActivity(
-                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
-                )
-                Toast.makeText(this, "Разрешите установку и нажмите «Проверить обновления» ещё раз", Toast.LENGTH_LONG).show()
-                return
-            }
-            startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Не удалось запустить установку: ${e.message}", Toast.LENGTH_LONG).show()
-        }
     }
 
     // ---------- данные ----------
