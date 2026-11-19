@@ -21,12 +21,14 @@ import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
@@ -59,8 +61,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnUse).setOnClickListener { onUseClicked() }
         findViewById<Button>(R.id.btnPay).setOnClickListener { onPayClicked() }
-        findViewById<Button>(R.id.btnUpdate).setOnClickListener { onUpdateClicked() }
-        findViewById<Button>(R.id.btnImport).setOnClickListener { pickImportFile.launch("*/*") }
+        findViewById<ImageButton>(R.id.btnMenu).setOnClickListener { showMenu(it) }
 
         listView.setOnItemLongClickListener { _, _, position, _ ->
             confirmDelete(adapter.getItem(position))
@@ -119,6 +120,48 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton("Отмена", null)
                 .show()
         }
+    }
+
+    /** Меню «⋮» в правом верхнем углу: обновление, сохранение и восстановление истории. */
+    private fun showMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        popup.menuInflater.inflate(R.menu.main_menu, popup.menu)
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.menu_update -> onUpdateClicked()
+                R.id.menu_save -> saveToFile()
+                R.id.menu_restore -> pickImportFile.launch("*/*")
+            }
+            true
+        }
+        popup.show()
+    }
+
+    /** «Сохранить в файл»: пишет актуальную историю в Загрузки/Trainings/history.json. */
+    private fun saveToFile() {
+        val arr = JSONArray()
+        events.forEach {
+            arr.put(
+                JSONObject()
+                    .put("id", it.id)
+                    .put("type", it.type)
+                    .put("date", it.date)
+                    .put("count", it.count)
+            )
+        }
+        val json = arr.toString()
+        getSharedPreferences("trainings", MODE_PRIVATE).edit().putString("events", json).apply()
+        Toast.makeText(this, "Сохраняю файл…", Toast.LENGTH_SHORT).show()
+        Thread {
+            val ok = mirrorToDownloads(json)
+            runOnUiThread {
+                Toast.makeText(
+                    this,
+                    if (ok) "Сохранено: Загрузки/Trainings/history.json" else "Не удалось сохранить файл",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }.start()
     }
 
     private fun confirmDelete(event: Event) {
@@ -243,14 +286,14 @@ class MainActivity : AppCompatActivity() {
     private fun canWriteLegacyStorage(): Boolean =
         checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
 
-    /** Копия истории в общей папке Download/Trainings. API 29+ — через MediaStore без разрешений. */
-    private fun mirrorToDownloads(json: String) {
-        try {
+    /** Копия истории в общей папке Download/Trainings. API 29+ — через MediaStore без разрешений. Возвращает успех. */
+    private fun mirrorToDownloads(json: String): Boolean {
+        return try {
             if (Build.VERSION.SDK_INT >= 29) {
                 val resolver = contentResolver
                 val existing = findHistoryUri()
                 if (existing != null) {
-                    resolver.openOutputStream(existing, "wt")?.use { it.write(json.toByteArray()) }
+                    resolver.openOutputStream(existing, "wt")?.use { it.write(json.toByteArray()) } ?: return false
                 } else {
                     val values = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, historyJsonName())
@@ -259,20 +302,23 @@ class MainActivity : AppCompatActivity() {
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
                     val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    val newUri = resolver.insert(collection, values) ?: return
-                    resolver.openOutputStream(newUri)?.use { it.write(json.toByteArray()) }
+                    val newUri = resolver.insert(collection, values) ?: return false
+                    resolver.openOutputStream(newUri)?.use { it.write(json.toByteArray()) } ?: return false
                     values.clear()
                     values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                     resolver.update(newUri, values, null, null)
                 }
+                true
             } else {
                 // API 26–28: прямой файл (нужно разрешение WRITE_EXTERNAL_STORAGE)
-                if (!canWriteLegacyStorage()) return
+                if (!canWriteLegacyStorage()) return false
                 val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Trainings")
                 if (!dir.exists()) dir.mkdirs()
                 File(dir, historyJsonName()).writeText(json)
+                true
             }
         } catch (_: Exception) {
+            false
         }
     }
 
