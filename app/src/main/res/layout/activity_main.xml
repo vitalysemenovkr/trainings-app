@@ -52,15 +52,6 @@
             android:text="Оплатил абонемент" />
     </LinearLayout>
 
-    <Button
-        android:id="@+id/btnUpdate"
-        style="@style/Widget.Material3.Button.TextButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="Проверить обновления"
-        android:textSize="13sp" />
-
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
