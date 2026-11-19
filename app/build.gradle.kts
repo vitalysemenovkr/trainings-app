@@ -11,8 +11,10 @@ android {
         applicationId = "com.example.trainings"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // на GitHub Actions versionCode = номер запуска сборки (совпадает с тегом релиза vN);
+        // локально — 1
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+        versionName = "1.$versionCode"
     }
 
     buildTypes {
