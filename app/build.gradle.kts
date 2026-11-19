@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId = "com.example.trainings"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+        versionName = "1.$versionCode"
     }
 
     buildTypes {
