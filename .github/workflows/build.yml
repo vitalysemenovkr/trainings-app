@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,3 +24,14 @@ jobs:
         with:
           name: trainings-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+      # публикуем APK как релиз v<номер запуска>, помечаем его последним —
+      # приложение по кнопке «Проверить обновления» качает его оттуда
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: v${{ github.run_number }}
+          body: Автосборка ${{ github.event.head_commit.message }}
+          files: app/build/outputs/apk/debug/app-debug.apk
+          make_latest: true
