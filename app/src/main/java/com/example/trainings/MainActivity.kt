@@ -1,6 +1,7 @@
 package com.example.trainings
 
 import android.app.DatePickerDialog
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
 import android.text.InputType
@@ -228,7 +229,14 @@ class MainActivity : AppCompatActivity() {
             val e = items[position]
             val title = v.findViewById<TextView>(R.id.title)
             title.text = describe(e)
-            title.setTextColor(if (e.type == "PAY") Color.parseColor("#388E3C") else title.textColors.defaultColor)
+            // исходные цвета темы сохраняем в tag: ListView переиспользует view,
+            // и без этого после зелёной строки оплаты цвет «прилипал» к строкам списания
+            val defaultColors = v.tag as? ColorStateList
+                ?: title.textColors.also { v.tag = it }
+            title.setTextColor(
+                if (e.type == "PAY") ColorStateList.valueOf(Color.parseColor("#388E3C"))
+                else defaultColors
+            )
             v.findViewById<TextView>(R.id.date).text = formatDate(e.date)
             return v
         }
