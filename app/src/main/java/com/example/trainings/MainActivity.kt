@@ -113,7 +113,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnPrevMonth).setOnClickListener { shiftMonth(-1) }
         findViewById<ImageButton>(R.id.btnNextMonth).setOnClickListener { shiftMonth(1) }
 
-        findViewById<MaterialButtonToggleGroup>(R.id.modeToggle).addOnButtonCheckedListener { _, checkedId, _ ->
+        findViewById<MaterialButtonToggleGroup>(R.id.modeToggle).addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
             calendarMode = if (checkedId == R.id.btnModePay) "PAY" else "USE"
             renderCalendar()
         }
@@ -572,18 +573,19 @@ class MainActivity : AppCompatActivity() {
 
     private inner class DayAdapter : BaseAdapter() {
         var cells: List<DayCell> = emptyList()
+        // обычный цвет текста дня, снимаем с первой свежей ячейки один раз
+        var defaultDayColor: Int = Int.MIN_VALUE
 
         override fun getCount() = cells.size
         override fun getItem(position: Int) = cells[position]
         override fun getItemId(position: Int) = position.toLong()
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-            val v = convertView
-                ?: LayoutInflater.from(this@MainActivity).inflate(R.layout.item_calendar_day, parent, false)
+            //GridView переиспользует ячейки, из-за этого после смены режима/месяца
+            //заливка пропадала — ячеек всего ~42, поэтому всегда создаём свежую
+            val v = LayoutInflater.from(this@MainActivity).inflate(R.layout.item_calendar_day, parent, false)
             val tv = v.findViewById<TextView>(R.id.dayCell)
-            // цвета темы сохраняем в tag: GridView переиспользует ячейки
-            val defaultColors = v.tag as? ColorStateList
-                ?: tv.textColors.also { v.tag = it }
+            if (defaultDayColor == Int.MIN_VALUE) defaultDayColor = tv.currentTextColor
             val cell = cells[position]
 
             if (cell.day == null) {
@@ -607,11 +609,11 @@ class MainActivity : AppCompatActivity() {
                     }
                     isToday -> {
                         tv.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.circle_today)
-                        tv.setTextColor(defaultColors)
+                        tv.setTextColor(defaultDayColor)
                     }
                     else -> {
                         tv.background = null
-                        tv.setTextColor(defaultColors)
+                        tv.setTextColor(defaultDayColor)
                     }
                 }
             }
