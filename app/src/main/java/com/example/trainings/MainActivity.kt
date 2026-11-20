@@ -21,6 +21,7 @@ import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.GridView
 import android.widget.ImageButton
 import android.widget.ListView
 import android.widget.TextView
@@ -29,17 +30,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.button.MaterialButtonToggleGroup
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Locale
 
 /** type: "PAY" (оплата, count = число тренировок) или "USE" (списание одной тренировки). date: yyyy-MM-dd */
 data class Event(val id: Long, val type: String, val date: String, val count: Int)
+
+/** Ячейка календаря: day = null для пустых мест до начала месяца. count = сумма за день. */
+data class DayCell(val day: Int?, val count: Int)
 
 class MainActivity : AppCompatActivity() {
 
@@ -48,6 +57,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var summaryView: TextView
     private lateinit var listView: ListView
     private val adapter = EventAdapter()
+
+    // календарь
+    private lateinit var listScreen: View
+    private lateinit var calendarScreen: View
+    private lateinit var calendarGrid: GridView
+    private lateinit var monthTitle: TextView
+    private lateinit var calendarSummary: TextView
+    private val calAdapter = DayAdapter()
+    private val monthView: Calendar = Calendar.getInstance()
+    private var calendarMode = "USE"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +85,42 @@ class MainActivity : AppCompatActivity() {
         listView.setOnItemLongClickListener { _, _, position, _ ->
             confirmDelete(adapter.getItem(position))
             true
+        }
+
+        // нижняя навигация: «Записи» / «Календарь»
+        listScreen = findViewById(R.id.listScreen)
+        calendarScreen = findViewById(R.id.calendarScreen)
+        calendarGrid = findViewById(R.id.calendarGrid)
+        calendarGrid.adapter = calAdapter
+        monthTitle = findViewById(R.id.monthTitle)
+        calendarSummary = findViewById(R.id.calendarSummary)
+
+        findViewById<BottomNavigationView>(R.id.bottomNav).setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_list -> {
+                    listScreen.visibility = View.VISIBLE
+                    calendarScreen.visibility = View.GONE
+                }
+                R.id.nav_calendar -> {
+                    listScreen.visibility = View.GONE
+                    calendarScreen.visibility = View.VISIBLE
+                    renderCalendar()
+                }
+            }
+            true
+        }
+
+        findViewById<ImageButton>(R.id.btnPrevMonth).setOnClickListener { shiftMonth(-1) }
+        findViewById<ImageButton>(R.id.btnNextMonth).setOnClickListener { shiftMonth(1) }
+
+        findViewById<MaterialButtonToggleGroup>(R.id.modeToggle).addOnButtonCheckedListener { _, checkedId, _ ->
+            calendarMode = if (checkedId == R.id.btnModePay) "PAY" else "USE"
+            renderCalendar()
+        }
+
+        // тап по дню — список записей этого дня
+        calendarGrid.setOnItemClickListener { _, _, position, _ ->
+            showDayDialog(position)
         }
 
         load()
@@ -206,6 +261,8 @@ class MainActivity : AppCompatActivity() {
         // новые сверху; при равных датах — по порядку добавления (позднее выше)
         adapter.items = events.sortedWith(compareByDescending<Event> { it.date }.thenByDescending { it.id })
         adapter.notifyDataSetChanged()
+
+        renderCalendar()
     }
 
     private fun load() {
@@ -449,6 +506,116 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
         } else {
             startActivity(intent)
+        }
+    }
+
+    // ---------- календарь статистики ----------
+
+    private fun shiftMonth(delta: Int) {
+        monthView.add(Calendar.MONTH, delta)
+        renderCalendar()
+    }
+
+    /** Перестраивает сетку текущего месяца и сводку. Вызывается при смене месяца/режима и при refresh(). */
+    private fun renderCalendar() {
+        val y = monthView.get(Calendar.YEAR)
+        val m = monthView.get(Calendar.MONTH) // 0-based
+
+        val title = SimpleDateFormat("LLLL yyyy", Locale("ru")).format(monthView.time)
+        monthTitle.text = title.replaceFirstChar { it.uppercaseChar() }
+
+        // суммы по дням для выбранного режима
+        val prefix = String.format("%04d-%02d", y, m + 1)
+        val byDay = HashMap<String, Int>()
+        events.filter { it.type == calendarMode && it.date.startsWith(prefix) }
+            .forEach { byDay[it.date] = (byDay[it.date] ?: 0) + it.count }
+
+        // пустые ячейки до первого дня (неделя с понедельника) + дни месяца, добитые до полных недель
+        val first = (monthView.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, 1) }
+        val firstDow = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7 // Пн=0..Вс=6
+        val daysInMonth = monthView.getActualMaximum(Calendar.DAY_OF_MONTH)
+        val total = ((firstDow + daysInMonth + 6) / 7) * 7
+
+        val cells = ArrayList<DayCell>(total)
+        repeat(firstDow) { cells.add(DayCell(null, 0)) }
+        for (d in 1..daysInMonth) {
+            val iso = String.format("%04d-%02d-%02d", y, m + 1, d)
+            cells.add(DayCell(d, byDay[iso] ?: 0))
+        }
+        while (cells.size < total) cells.add(DayCell(null, 0))
+        calAdapter.cells = cells
+        calAdapter.notifyDataSetChanged()
+
+        // сводка за месяц по обоим типам
+        val uses = events.filter { it.type == "USE" && it.date.startsWith(prefix) }.sumOf { it.count }
+        val pays = events.filter { it.type == "PAY" && it.date.startsWith(prefix) }.sumOf { it.count }
+        val monthName = SimpleDateFormat("LLLL", Locale("ru")).format(monthView.time)
+        calendarSummary.text = "За $monthName: тренировок −$uses · оплат +$pays"
+    }
+
+    private fun showDayDialog(position: Int) {
+        val cell = calAdapter.cells.getOrNull(position) ?: return
+        val d = cell.day ?: return
+        val iso = String.format(
+            "%04d-%02d-%02d",
+            monthView.get(Calendar.YEAR), monthView.get(Calendar.MONTH) + 1, d
+        )
+        val dayEvents = events.filter { it.date == iso }.sortedBy { it.id }
+        if (dayEvents.isEmpty()) return
+        val msg = dayEvents.joinToString("\n") { describe(it) }
+        AlertDialog.Builder(this)
+            .setTitle(formatDate(iso))
+            .setMessage(msg)
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    private inner class DayAdapter : BaseAdapter() {
+        var cells: List<DayCell> = emptyList()
+
+        override fun getCount() = cells.size
+        override fun getItem(position: Int) = cells[position]
+        override fun getItemId(position: Int) = position.toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val v = convertView
+                ?: LayoutInflater.from(this@MainActivity).inflate(R.layout.item_calendar_day, parent, false)
+            val tv = v.findViewById<TextView>(R.id.dayCell)
+            // цвета темы сохраняем в tag: GridView переиспользует ячейки
+            val defaultColors = v.tag as? ColorStateList
+                ?: tv.textColors.also { v.tag = it }
+            val cell = cells[position]
+
+            if (cell.day == null) {
+                tv.text = ""
+                tv.background = null
+            } else {
+                tv.text = cell.day.toString()
+                val today = Calendar.getInstance()
+                val isToday =
+                    today.get(Calendar.YEAR) == monthView.get(Calendar.YEAR) &&
+                        today.get(Calendar.MONTH) == monthView.get(Calendar.MONTH) &&
+                        today.get(Calendar.DAY_OF_MONTH) == cell.day
+                when {
+                    cell.count > 0 && calendarMode == "USE" -> {
+                        tv.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.circle_workout)
+                        tv.setTextColor(Color.WHITE)
+                    }
+                    cell.count > 0 -> {
+                        tv.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.circle_pay)
+                        tv.setTextColor(Color.WHITE)
+                    }
+                    isToday -> {
+                        tv.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.circle_today)
+                        tv.setTextColor(defaultColors)
+                    }
+                    else -> {
+                        tv.background = null
+                        tv.setTextColor(defaultColors)
+                    }
+                }
+            }
+            return v
         }
     }
 
