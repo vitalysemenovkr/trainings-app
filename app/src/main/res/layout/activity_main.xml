@@ -247,8 +247,7 @@
                 android:horizontalSpacing="2dp"
                 android:numColumns="7"
                 android:stretchMode="columnWidth"
-                android:verticalSpacing="2dp"
-                android:verticalScrollBarEnabled="false" />
+                android:verticalSpacing="2dp" />
 
             <TextView
                 android:id="@+id/calendarSummary"
