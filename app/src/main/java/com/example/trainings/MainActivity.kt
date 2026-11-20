@@ -126,6 +126,7 @@ class MainActivity : AppCompatActivity() {
 
         load()
         applyNotesHistory()
+        fixNotesHistory()
         refresh()
     }
 
@@ -305,7 +306,7 @@ class MainActivity : AppCompatActivity() {
                 val type = o.getString("type")
                 val date = o.getString("date")
                 val count = o.getInt("count")
-                if (events.none { it.type == type && it.date == date && it.count == count }) {
+                if (events.none { it.type == type && it.date == date }) {
                     events.add(Event(++maxId, type, date, count))
                 }
             }
@@ -313,6 +314,21 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {
         }
         prefs.edit().putBoolean("notes_history_v1", true).apply()
+    }
+
+    /**
+     * Однократная правка уже добавленной истории: первая оплата 16.01.2025 приводится к 16 тренировкам,
+     * чтобы остатки, сгоравшие при смене абонемента, не увеличивали текущий баланс (он должен совпадать с реальным).
+     */
+    private fun fixNotesHistory() {
+        val prefs = getSharedPreferences("trainings", MODE_PRIVATE)
+        if (prefs.getBoolean("notes_history_v2", false)) return
+        val idx = events.indexOfFirst { it.type == "PAY" && it.date == "2025-01-16" && it.count == 20 }
+        if (idx >= 0) {
+            events[idx] = events[idx].copy(count = 16)
+            save()
+        }
+        prefs.edit().putBoolean("notes_history_v2", true).apply()
     }
 
     /** Начальные данные при первом запуске (история из блокнота). После этого можно удалить записи долгим нажатием. */
