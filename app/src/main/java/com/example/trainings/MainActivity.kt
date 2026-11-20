@@ -125,6 +125,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         load()
+        applyNotesHistory()
         refresh()
     }
 
@@ -286,6 +287,32 @@ class MainActivity : AppCompatActivity() {
             val o = arr.getJSONObject(i)
             events.add(Event(o.getLong("id"), o.getString("type"), o.getString("date"), o.getInt("count")))
         }
+    }
+
+    /**
+     * Однократно добавляет историю из заметок (январь 2025 — сентябрь 2026) к уже имеющимся записям.
+     * Совпадающие записи (тип + дата + количество) не дублируются. Флаг в prefs — чтобы не повторять при каждом запуске.
+     */
+    private fun applyNotesHistory() {
+        val prefs = getSharedPreferences("trainings", MODE_PRIVATE)
+        if (prefs.getBoolean("notes_history_v1", false)) return
+        try {
+            val json = resources.openRawResource(R.raw.seed_history).bufferedReader().use { it.readText() }
+            val arr = JSONArray(json)
+            var maxId = events.maxOfOrNull { it.id } ?: 0L
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val type = o.getString("type")
+                val date = o.getString("date")
+                val count = o.getInt("count")
+                if (events.none { it.type == type && it.date == date && it.count == count }) {
+                    events.add(Event(++maxId, type, date, count))
+                }
+            }
+            save()
+        } catch (_: Exception) {
+        }
+        prefs.edit().putBoolean("notes_history_v1", true).apply()
     }
 
     /** Начальные данные при первом запуске (история из блокнота). После этого можно удалить записи долгим нажатием. */
